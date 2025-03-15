@@ -1,0 +1,14 @@
+[Unit]
+Description=Flask E-commerce Container Monitor
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/path/to/your/Flask-Ecommerce-main
+ExecStart=/bin/bash /path/to/your/Flask-Ecommerce-main/monitor.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target 
