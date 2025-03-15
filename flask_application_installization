@@ -1,0 +1,225 @@
+# Ubuntu Deployment Guide for Flask E-commerce
+
+This guide provides detailed steps to deploy the Flask E-commerce application on Ubuntu using Gunicorn and systemd services.
+
+## System Requirements
+
+- Ubuntu 20.04 LTS or newer
+- Python 3.8+
+- PostgreSQL
+- Nginx
+
+## 1. Initial Server Setup
+
+```bash
+# Update system packages
+sudo apt update
+sudo apt upgrade -y
+
+# Install required packages
+sudo apt install -y python3.8 python3.8-venv python3-pip postgresql nginx supervisor
+```
+
+## 2. Create Application User and Directory
+
+```bash
+# Create application user
+sudo useradd -m -s /bin/bash flask_app
+
+# Create application directory
+sudo mkdir -p /var/www/flask_ecommerce
+sudo chown flask_app:flask_app /var/www/flask_ecommerce
+```
+
+## 3. Database Setup
+
+```bash
+# Install PostgreSQL
+sudo apt install -y postgresql postgresql-contrib
+
+# Create database and user
+sudo -u postgres psql -c "CREATE DATABASE ecommerce;"
+sudo -u postgres psql -c "CREATE USER flask_user WITH PASSWORD 'your_secure_password';"
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE ecommerce TO flask_user;"
+```
+
+## 4. Application Setup
+
+```bash
+# Switch to application user
+sudo su - flask_app
+
+# Clone repository
+cd /var/www/flask_ecommerce
+git clone https://github.com/yourusername/Flask-Ecommerce.git .
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+pip install gunicorn psycopg2-binary
+```
+
+## 5. Gunicorn Configuration
+
+Create Gunicorn configuration file:
+
+```bash
+# Create gunicorn config directory
+sudo mkdir -p /etc/gunicorn
+```
+
+Create `/etc/gunicorn/flask_ecommerce.conf.py`:
+```python
+# Gunicorn configuration
+bind = "unix:/var/www/flask_ecommerce/gunicorn.sock"
+workers = 4
+worker_class = "sync"
+worker_connections = 1000
+timeout = 120
+keepalive = 5
+errorlog = "/var/log/gunicorn/error.log"
+accesslog = "/var/log/gunicorn/access.log"
+loglevel = "info"
+```
+
+## 6. Systemd Service Configuration
+
+Create systemd service file `/etc/systemd/system/flask_ecommerce.service`:
+```ini
+[Unit]
+Description=Flask E-commerce Gunicorn Service
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+User=flask_app
+Group=www-data
+WorkingDirectory=/var/www/flask_ecommerce
+Environment="PATH=/var/www/flask_ecommerce/venv/bin"
+ExecStart=/var/www/flask_ecommerce/venv/bin/gunicorn --config /etc/gunicorn/flask_ecommerce.conf.py main:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## 7. Nginx Configuration
+
+Create Nginx configuration `/etc/nginx/sites-available/flask_ecommerce`:
+```nginx
+server {
+    listen 80;
+    server_name your_domain.com;
+
+    location / {
+        proxy_pass http://unix:/var/www/flask_ecommerce/gunicorn.sock;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /static {
+        alias /var/www/flask_ecommerce/website/static;
+    }
+
+    location /media {
+        alias /var/www/flask_ecommerce/media;
+    }
+}
+```
+
+## 8. Setup Permissions and Enable Services
+
+```bash
+# Create log directories
+sudo mkdir -p /var/log/gunicorn
+sudo chown -R flask_app:flask_app /var/log/gunicorn
+
+# Set proper permissions
+sudo chown -R flask_app:www-data /var/www/flask_ecommerce
+sudo chmod -R 755 /var/www/flask_ecommerce
+
+# Enable Nginx configuration
+sudo ln -s /etc/nginx/sites-available/flask_ecommerce /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+
+# Test Nginx configuration
+sudo nginx -t
+
+# Start and enable services
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+sudo systemctl start flask_ecommerce
+sudo systemctl enable flask_ecommerce
+sudo systemctl restart nginx
+```
+
+## 9. SSL Configuration (Optional but Recommended)
+
+```bash
+# Install Certbot
+sudo apt install -y certbot python3-certbot-nginx
+
+# Obtain SSL certificate
+sudo certbot --nginx -d your_domain.com
+```
+
+## 10. Monitoring and Maintenance
+
+### Check Service Status
+```bash
+sudo systemctl status flask_ecommerce
+sudo systemctl status nginx
+sudo systemctl status postgresql
+```
+
+### View Logs
+```bash
+# Gunicorn logs
+sudo tail -f /var/log/gunicorn/error.log
+sudo tail -f /var/log/gunicorn/access.log
+
+# Nginx logs
+sudo tail -f /var/log/nginx/access.log
+sudo tail -f /var/log/nginx/error.log
+```
+
+### Restart Services
+```bash
+sudo systemctl restart flask_ecommerce
+sudo systemctl restart nginx
+```
+
+## Troubleshooting
+
+1. **Permission Issues**
+```bash
+# Fix permissions
+sudo chown -R flask_app:www-data /var/www/flask_ecommerce
+sudo chmod -R 755 /var/www/flask_ecommerce
+```
+
+2. **Socket Issues**
+```bash
+# Check socket existence
+ls -l /var/www/flask_ecommerce/gunicorn.sock
+
+# Fix socket permissions
+sudo chown flask_app:www-data /var/www/flask_ecommerce/gunicorn.sock
+```
+
+3. **Service Won't Start**
+```bash
+# Check service logs
+sudo journalctl -u flask_ecommerce -f
+
+# Verify Python environment
+sudo su - flask_app
+source /var/www/flask_ecommerce/venv/bin/activate
+python -c "import main"
+``` 
